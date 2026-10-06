@@ -1,0 +1,893 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>λ Reduction stepper</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=STIX+Two+Text:ital,wght@0,400;0,600;1,400&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#EEF1F4; --surface:#FFFFFF; --ink:#16233B; --muted:#5B6B82; --faint:#A3AEBE; --rule:#CBD3DE;
+  --hole:#C42B57; --hole-bg:#F9DDE5; --arg:#0B7A73; --arg-bg:#D3EFEC;
+  --btn:#16233B; --btn-ink:#FFFFFF;
+  --fs:1.7rem;
+  --math:"STIX Two Text","Cambria Math","Times New Roman",Georgia,serif;
+  --ui:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#101823; --surface:#18222F; --ink:#E5EBF3; --muted:#8C9BB0; --faint:#4E5D72; --rule:#2A3747;
+    --hole:#FF7C9C; --hole-bg:#4A1D2B; --arg:#4FD1C5; --arg-bg:#123C3A;
+    --btn:#E5EBF3; --btn-ink:#101823;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#101823; --surface:#18222F; --ink:#E5EBF3; --muted:#8C9BB0; --faint:#4E5D72; --rule:#2A3747;
+  --hole:#FF7C9C; --hole-bg:#4A1D2B; --arg:#4FD1C5; --arg-bg:#123C3A;
+  --btn:#E5EBF3; --btn-ink:#101823;
+}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*,*::before,*::after{box-sizing:inherit}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--ui);font-size:16px;line-height:1.5}
+.wrap{max-width:1180px;margin:0 auto;padding:28px 24px 48px}
+
+header{display:flex;align-items:flex-end;gap:18px;flex-wrap:wrap;margin-bottom:22px}
+.glyph{font-family:var(--math);font-size:4.2rem;line-height:.8;font-style:italic}
+.titles h1{font-family:var(--math);font-weight:600;font-size:1.9rem;margin:0;line-height:1.1}
+.titles p{margin:4px 0 0;color:var(--muted);max-width:60ch}
+.tools{margin-left:auto;display:flex;gap:6px;align-items:center}
+
+.panel{background:var(--surface);border:1px solid var(--rule);border-radius:10px;padding:16px}
+textarea{width:100%;font-family:var(--math);font-size:1.35rem;color:var(--ink);background:transparent;
+  border:1px solid var(--rule);border-radius:6px;padding:10px 12px;resize:vertical;min-height:3.2em;line-height:1.4}
+textarea:focus-visible,button:focus-visible,select:focus-visible,summary:focus-visible{outline:3px solid var(--arg);outline-offset:2px}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:12px}
+.row .spacer{flex:1}
+button,select{font-family:var(--ui);font-size:.95rem;font-weight:500;border-radius:6px;cursor:pointer;
+  border:1px solid var(--rule);background:transparent;color:var(--ink);padding:8px 14px;min-height:40px}
+select option{background:var(--surface);color:var(--ink)}
+button.primary{background:var(--btn);color:var(--btn-ink);border-color:var(--btn);padding:8px 20px}
+button:disabled{opacity:.4;cursor:default}
+label.inline{font-size:.9rem;color:var(--muted);display:flex;align-items:center;gap:6px}
+.hint{font-size:.85rem;color:var(--muted)}
+kbd{font-family:var(--ui);font-size:.8rem;border:1px solid var(--rule);border-bottom-width:2px;border-radius:4px;padding:0 5px;background:var(--surface)}
+
+details{margin-top:12px;font-size:.92rem}
+summary{cursor:pointer;color:var(--muted)}
+.defs{font-family:var(--math);font-size:1.05rem;line-height:1.7;margin:8px 0 6px;overflow-x:auto;white-space:pre}
+details p{margin:4px 0 0;color:var(--muted);max-width:75ch}
+.error{color:var(--hole);font-weight:500;margin-top:10px;min-height:1.2em}
+
+.stage{margin-top:18px;padding:14px 20px 26px;min-height:50vh;overflow-x:hidden}
+#lines{position:relative}
+#arrows{position:absolute;inset:0;width:100%;height:100%;overflow:visible;pointer-events:none;z-index:2}
+.line{display:grid;grid-template-columns:3.2rem minmax(0,1fr) minmax(0,15rem);column-gap:14px;
+  padding:calc(var(--fs)*.8) 0;border-top:1px solid var(--rule);transition:padding-top .25s ease}
+#lines > .line:first-of-type{border-top:none}
+.line.stepping{padding-top:calc(var(--fs)*2.5)}
+.gutter{font-size:.85rem;color:var(--muted);font-variant-numeric:tabular-nums;padding-top:.6em;text-align:right}
+.expr{font-family:var(--math);font-size:var(--fs);line-height:1.45;overflow-wrap:anywhere;transition:opacity .4s;position:relative;z-index:3}
+.note{grid-column:3;align-self:center;font-size:.9rem;color:var(--muted);line-height:1.4}
+.line.past .expr{opacity:.5}
+.line.past .note{opacity:.6}
+.v,.binder{font-style:italic}
+.nm{letter-spacing:.03em}
+.dt{margin-right:.04em}
+
+/* highlighted line (the one being reduced) */
+.pc-h,.pc-a{border-radius:4px;transition:color .4s,background-color .4s}
+.line.top .pc-h{color:var(--hole);background:var(--hole-bg);padding:0 .06em}
+.line.top .pc-a{color:var(--arg);background:var(--arg-bg);padding:0 .08em}
+.line.top .binder{color:var(--hole);text-decoration:underline;text-decoration-thickness:2px;text-underline-offset:.15em}
+.line.top.active .pc-h{animation:pulse 1s ease-in-out infinite alternate}
+@keyframes pulse{from{box-shadow:0 0 0 0 var(--hole-bg)}to{box-shadow:0 0 0 .16em var(--hole-bg)}}
+.line.top.done .pc-h,.line.top.done .pc-a{background:transparent}
+.line.top.done .pc-h{color:var(--hole)}
+.line.top.done .pc-a{color:var(--arg)}
+
+/* result line being built */
+.line.res .pc-h,.line.res .pc-s{visibility:hidden}
+.line.res .pc.shown{visibility:visible}
+.line.res .pc.shown.arrive{animation:arrive .45s ease-out}
+.line.res .pc-h.shown{color:var(--arg);background:var(--arg-bg);padding:0 .06em}
+.line.res .pc-c{color:var(--faint)}
+.line.res.settled .pc-c{color:inherit;transition:color .8s}
+.line.res.settled .pc-h.shown{background:transparent}
+@keyframes arrive{from{opacity:0;filter:blur(3px)}to{opacity:1;filter:blur(0)}}
+
+.note .k-hole{color:var(--hole);font-family:var(--math);font-style:italic;font-size:1.1em}
+.note .k-arg{color:var(--arg);font-family:var(--math);font-size:1.1em}
+
+/* arrows */
+.ar path{fill:none;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.ar.sub path{stroke:var(--arg)}
+.ar.seg path{stroke:var(--ink)}
+.ar.done path{stroke:var(--faint)}
+.mk{fill:var(--arg)} .mk.seg{fill:var(--ink)} .mk.done{fill:var(--faint)}
+.anim{stroke-dasharray:1;stroke-dashoffset:1;animation-name:draw;animation-timing-function:ease-out;animation-fill-mode:forwards}
+@keyframes draw{to{stroke-dashoffset:0}}
+
+.status{margin-top:14px;font-size:1rem;min-height:1.5em}
+.status strong{font-weight:600}
+
+@media (prefers-reduced-motion: reduce){
+  .line.top.active .pc-h,.line.res .pc.shown{animation:none}
+  .anim{animation-duration:.01s!important}
+  .line{transition:none}
+}
+@media (max-width:820px){
+  .line{grid-template-columns:2.2rem minmax(0,1fr);column-gap:8px}
+  .note{grid-column:2;align-self:start;margin-top:4px}
+  .line.top .note{display:none}
+}
+@media (max-width:640px){
+  .wrap{padding:18px 14px 32px}
+  .glyph{font-size:3rem}
+  .titles h1{font-size:1.5rem}
+  .tools{margin-left:0}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="glyph" aria-hidden="true">λ</div>
+    <div class="titles">
+      <h1>Reduction stepper</h1>
+      <p>Type an expression and reduce it one substitution at a time.</p>
+    </div>
+    <div class="tools">
+      <button id="smaller" aria-label="Smaller text">A−</button>
+      <button id="bigger" aria-label="Bigger text">A+</button>
+      <button id="theme">Dark mode</button>
+    </div>
+  </header>
+
+  <section class="panel">
+    <textarea id="src" spellcheck="false" aria-label="Lambda expression">(λx. x y x) (λz. z)</textarea>
+    <div class="row">
+      <select id="examples" aria-label="Examples">
+        <option value="">Load an example…</option>
+      </select>
+      <button id="load">Load</button>
+      <span class="spacer"></span>
+      <label class="inline">Pace
+        <select id="speed">
+          <option value="manual">One arrow per click</option>
+          <option value="1.7">Slow</option>
+          <option value="1" selected>Normal</option>
+          <option value="0.5">Fast</option>
+          <option value="0">Instant, no arrows</option>
+        </select>
+      </label>
+      <button id="back">Back</button>
+      <button id="run">Run to end</button>
+      <button id="next" class="primary">Next step</button>
+    </div>
+    <div class="error" id="error" role="alert"></div>
+    <details>
+      <summary>Built-in definitions and syntax</summary>
+      <div class="defs" id="defs"></div>
+      <p>Type <kbd>\</kbd> to get λ. Separate variables with spaces: <em>x x</em> applies x to itself. Numbers like 3 are Church numerals. Add your own definitions on lines above the expression, such as <em>TWICE = λf. λx. f (f x)</em>; names start with a capital letter. Press <kbd>Ctrl</kbd>+<kbd>Enter</kbd> to load.</p>
+    </details>
+  </section>
+
+  <section class="panel stage" aria-live="polite">
+    <div id="lines"><svg id="arrows" aria-hidden="true"></svg></div>
+    <div class="status" id="status"></div>
+  </section>
+  <p class="hint">Press <kbd>→</kbd> or <kbd>Space</kbd> for the next step and <kbd>←</kbd> to go back. With one arrow per click, <kbd>←</kbd> takes back one arrow at a time; at other paces, pressing <kbd>→</kbd> during an animation skips to the end of the step. A presentation clicker works too.</p>
+</div>
+
+<script>
+(function(){
+"use strict";
+const $=s=>document.querySelector(s);
+
+/* ---------- Terms ---------- */
+const Var=n=>({t:'var',n}), Name=n=>({t:'name',n}), Abs=(v,b)=>({t:'abs',v,b}), App=(f,a)=>({t:'app',f,a});
+class LErr extends Error{}
+
+const BUILTIN=`TRUE = λx. λy. x
+FALSE = λx. λy. y
+NOT = λp. p FALSE TRUE
+AND = λp. λq. p q p
+OR = λp. λq. p p q
+IF = λc. λa. λb. c a b
+SUCC = λn. λf. λx. f (n f x)
+PLUS = λm. λn. λf. λx. m f (n f x)
+MULT = λm. λn. λf. m (n f)
+I = λx. x
+K = λx. λy. x`;
+
+const EXAMPLES=[
+  ["Identity","(λx. x) y"],
+  ["Self-application","(λx. x x) (λy. y)"],
+  ["Body with other terms","(λx. x y x) (λz. z)"],
+  ["TRUE picks the first","TRUE a b"],
+  ["FALSE picks the second","FALSE a b"],
+  ["NOT TRUE","NOT TRUE"],
+  ["AND TRUE FALSE","AND TRUE FALSE"],
+  ["IF TRUE yes no","IF TRUE yes no"],
+  ["SUCC 1","SUCC 1"],
+  ["PLUS 1 2","PLUS 1 2"],
+  ["MULT 2 2","MULT 2 2"],
+  ["Variable capture","(λx. λy. x) y"],
+  ["Your own definition","TWICE = λf. λx. f (f x)\nTWICE SUCC 0"],
+  ["Ω, the infinite loop","(λx. x x) (λx. x x)"]
+];
+
+/* ---------- Parser ---------- */
+function tokenize(s){
+  const out=[];let i=0;
+  while(i<s.length){
+    const c=s[i];
+    if(/\s/.test(c)){i++;continue}
+    if(c==='λ'||c==='\\'){out.push({k:'lam'});i++;continue}
+    if(c==='.'||c==='('||c===')'){out.push({k:c});i++;continue}
+    const m=/^[A-Za-z0-9_'′″]+/.exec(s.slice(i));
+    if(m){out.push({k:'id',v:m[0]});i+=m[0].length;continue}
+    throw new LErr(`“${c}” isn't part of lambda calculus. Use letters, numbers, λ (or \\), dots and parentheses.`);
+  }
+  return out;
+}
+function parse(src,defs){
+  const toks=tokenize(src);let pos=0;
+  const peek=()=>toks[pos];
+  function term(bound){const t=peek();return t&&t.k==='lam'?abs(bound):app(bound)}
+  function abs(bound){
+    pos++;const vs=[];
+    while(peek()&&peek().k==='id'){
+      const v=peek().v;
+      if(/^\d+$/.test(v))throw new LErr(`“${v}” can't be a variable after λ. Use a letter, like λx.`);
+      vs.push(v);pos++;
+    }
+    if(!vs.length)throw new LErr('After λ, write a variable name, like λx. x');
+    if(!peek()||peek().k!=='.')throw new LErr(`Add a dot after λ${vs.join(' ')} to start the function body.`);
+    pos++;
+    if(!peek()||peek().k===')')throw new LErr(`λ${vs.join(' ')}. needs a body after the dot.`);
+    let body=term(bound.concat(vs));
+    for(let i=vs.length-1;i>=0;i--)body=Abs(vs[i],body);
+    return body;
+  }
+  function app(bound){
+    let left=null;
+    for(;;){
+      const t=peek();
+      if(!t||t.k===')')break;
+      const a=t.k==='lam'?abs(bound):atom(bound);
+      left=left?App(left,a):a;
+      if(t.k==='lam')break;
+    }
+    if(!left)throw new LErr('Expected an expression here, such as a variable or a pair of parentheses with something inside.');
+    return left;
+  }
+  function atom(bound){
+    const t=peek();
+    if(t.k==='('){
+      pos++;
+      if(peek()&&peek().k===')')throw new LErr('Empty parentheses “()” have nothing to reduce. Put an expression inside.');
+      const e=term(bound);
+      if(!peek()||peek().k!==')')throw new LErr('A “(” is never closed. Add a matching “)”.');
+      pos++;return e;
+    }
+    if(t.k==='id'){
+      pos++;
+      if(bound.includes(t.v))return Var(t.v);
+      if(defs.has(t.v)||/^\d+$/.test(t.v))return Name(t.v);
+      return Var(t.v);
+    }
+    if(t.k==='.')throw new LErr('A dot can only follow λ and its variables, as in λx. x');
+    throw new LErr('Unexpected symbol.');
+  }
+  if(!toks.length)throw new LErr('Type an expression to reduce, such as (λx. x) y');
+  const e=term([]);
+  if(pos<toks.length)throw new LErr(peek().k===')'?'There is an extra “)”. Remove it or add a matching “(”.':'Unexpected text at the end of the expression.');
+  return e;
+}
+function parseDefs(text,base){
+  const m=new Map(base);
+  for(const raw of text.split('\n')){
+    const line=raw.trim();if(!line)continue;
+    const idx=line.indexOf('=');
+    const name=line.slice(0,idx).trim(),body=line.slice(idx+1).trim();
+    if(!/^[A-Z][A-Za-z0-9_]*$/.test(name))throw new LErr(`“${name}” can't be a definition name. Start it with a capital letter, like TWICE.`);
+    if(!body)throw new LErr(`${name} = needs an expression after the equals sign.`);
+    m.set(name,null);
+    m.set(name,parse(body,m));
+  }
+  return m;
+}
+const BUILTIN_DEFS=parseDefs(BUILTIN,new Map());
+let defs=BUILTIN_DEFS;
+
+function numeral(k){let b=Var('x');for(let i=0;i<k;i++)b=App(Var('f'),b);return Abs('f',Abs('x',b))}
+function expandName(n){
+  if(/^\d+$/.test(n)){const k=parseInt(n,10);if(k>200)throw new LErr('Numbers above 200 get too long to show. Try a smaller one.');return numeral(k)}
+  return defs.get(n);
+}
+
+/* ---------- Printing ---------- */
+const needs=(pos,c)=>pos==='f'?c.t==='abs':(c.t==='app'||c.t==='abs');
+function txt(t,paren){
+  let s;
+  switch(t.t){
+    case'var':case'name':s=t.n;break;
+    case'abs':s='λ'+t.v+'. '+txt(t.b,false);break;
+    case'app':s=txt(t.f,needs('f',t.f))+' '+txt(t.a,needs('a',t.a));break;
+  }
+  return paren?'('+s+')':s;
+}
+const esc=s=>s.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+/* Flat token stream. Each token belongs to a "piece":
+   c   = context outside the redex      hdr = "(λx." and ")" of the redex
+   a   = the argument                   hN  = Nth hole (top) / Nth substituted copy (result)
+   sN  = Nth run of body text between holes (same N on both lines)            */
+function tokens(term,o){
+  const out=[];let piece='c';
+  const E=(s,c)=>out.push({s,c,p:piece});
+  function w(t,p,paren,st){
+    if(o.mode!=='plain'&&!st.region&&p===o.hl){
+      if(paren)E('(','pn');
+      if(o.mode==='top'){
+        if(o.kind==='expand'){piece='h0';E(t.n,'nm');piece='c'}
+        else{
+          piece='hdr';E('(','pn');E('λ','lam');E(t.f.v,'v binder');E('.','dt');E(' ','sp');
+          const cnt={h:0,s:0};piece='s0';
+          w(t.f.b,p+'fb',false,{region:true,hole:t.f.v,cnt});
+          piece='hdr';E(')','pn');piece='c';E(' ','sp');
+          piece='a';w(t.a,p+'a',needs('a',t.a),{region:true});piece='c';
+        }
+      }else{
+        if(o.kind==='expand'){piece='h0';w(Object.assign({},t,{sub:null}),p,false,{region:true});piece='c'}
+        else{const cnt={h:0,s:0};piece='s0';w(t,p,false,{region:true,res:true,cnt});piece='c'}
+      }
+      if(paren)E(')','pn');
+      return;
+    }
+    if(st.res&&t.sub===o.id){
+      piece='h'+st.cnt.h++;
+      if(paren)E('(','pn');
+      w(Object.assign({},t,{sub:null}),p,false,{region:true});
+      if(paren)E(')','pn');
+      piece='s'+(++st.cnt.s);
+      return;
+    }
+    if(paren)E('(','pn');
+    switch(t.t){
+      case'var':
+        if(st.hole&&t.n===st.hole){piece='h'+st.cnt.h++;E(t.n,'v');piece='s'+(++st.cnt.s)}
+        else E(t.n,'v');
+        break;
+      case'name':E(t.n,'nm');break;
+      case'abs':E('λ','lam');E(t.v,'v');E('.','dt');E(' ','sp');
+        w(t.b,p+'b',false,st.hole&&t.v===st.hole?Object.assign({},st,{hole:null}):st);break;
+      case'app':w(t.f,p+'f',needs('f',t.f),st);E(' ','sp');w(t.a,p+'a',needs('a',t.a),st);break;
+    }
+    if(paren)E(')','pn');
+  }
+  w(term,'',false,{});
+  return out;
+}
+function pieceKind(p){return p==='c'||p==='hdr'||p==='a'?p:p[0]}
+function toHTML(tks){
+  let s='',cur=null;
+  for(const k of tks){
+    if(k.p!==cur){
+      if(cur!==null)s+='</span>';
+      s+=`<span class="pc pc-${pieceKind(k.p)}" data-p="${k.p}">`;cur=k.p;
+    }
+    s+=k.c==='sp'?' ':`<span class="${k.c}">${esc(k.s)}</span>`;
+  }
+  if(cur!==null)s+='</span>';
+  return s;
+}
+const plainHTML=t=>toHTML(tokens(t,{mode:'plain'}));
+
+/* ---------- Reduction (normal order) ---------- */
+function find(t,p){
+  if(t.t==='app'){
+    if(t.f.t==='abs')return{path:p,kind:'beta'};
+    if(t.f.t==='name')return{path:p+'f',kind:'expand'};
+    return find(t.f,p+'f')||find(t.a,p+'a');
+  }
+  if(t.t==='abs')return find(t.b,p+'b');
+  return null;
+}
+function getAt(t,p){for(const c of p)t=c==='f'?t.f:c==='a'?t.a:t.b;return t}
+function setAt(t,p,n){
+  if(!p.length)return n;
+  const c=p[0],rest=p.slice(1);
+  if(c==='f')return App(setAt(t.f,rest,n),t.a);
+  if(c==='a')return App(t.f,setAt(t.a,rest,n));
+  return Abs(t.v,setAt(t.b,rest,n));
+}
+function fv(t,out=new Set(),bound=[]){
+  if(t.t==='var'){if(!bound.includes(t.n))out.add(t.n)}
+  else if(t.t==='abs')fv(t.b,out,bound.concat(t.v));
+  else if(t.t==='app'){fv(t.f,out,bound);fv(t.a,out,bound)}
+  return out;
+}
+function subst(M,x,N,id,ctx,fvN){
+  switch(M.t){
+    case'var':return M.n===x?(id==null?N:Object.assign({},N,{sub:id,old:x})):M;
+    case'name':return M;
+    case'app':return App(subst(M.f,x,N,id,ctx,fvN),subst(M.a,x,N,id,ctx,fvN));
+    case'abs':{
+      if(M.v===x)return M;
+      const fb=fv(M.b);
+      if(fvN.has(M.v)&&fb.has(x)){
+        const used=new Set([...fvN,...fb,x]);
+        let y=M.v+'′';while(used.has(y))y+='′';
+        if(ctx)ctx.renamed.push([M.v,y]);
+        const b2=subst(M.b,M.v,Var(y),null,null,new Set([y]));
+        return Abs(y,subst(b2,x,N,id,ctx,fvN));
+      }
+      return Abs(M.v,subst(M.b,x,N,id,ctx,fvN));
+    }
+  }
+}
+function reduce(term,res,id){
+  const node=getAt(term,res.path);
+  if(res.kind==='expand'){
+    const def=expandName(node.n);
+    return{term:setAt(term,res.path,Object.assign({},def,{sub:id,old:node.n})),info:{kind:'expand',name:node.n}};
+  }
+  const v=node.f.v,arg=node.a,ctx={renamed:[]};
+  const body=subst(node.f.b,v,arg,id,ctx,fv(arg));
+  return{term:setAt(term,res.path,body),info:{kind:'beta',v,arg,renamed:ctx.renamed}};
+}
+
+/* ---------- Recognition ---------- */
+function full(t,budget={n:0}){
+  if(++budget.n>5000)throw new LErr('too deep');
+  switch(t.t){
+    case'var':return t;
+    case'name':return full(expandName(t.n),budget);
+    case'abs':return Abs(t.v,full(t.b,budget));
+    case'app':return App(full(t.f,budget),full(t.a,budget));
+  }
+}
+function db(t,env=[]){
+  switch(t.t){
+    case'var':{const i=env.lastIndexOf(t.n);return i<0?'F:'+t.n:'#'+(env.length-1-i)}
+    case'abs':return'λ'+db(t.b,env.concat(t.v));
+    case'app':return'('+db(t.f,env)+' '+db(t.a,env)+')';
+  }
+}
+function asNumeral(t){
+  if(t.t!=='abs'||t.b.t!=='abs')return null;
+  const f=t.v,x=t.b.v;if(f===x)return null;
+  let b=t.b.b,k=0;
+  while(b.t==='app'&&b.f.t==='var'&&b.f.n===f){k++;b=b.a}
+  return b.t==='var'&&b.n===x?k:null;
+}
+function recognize(t){
+  if(t.t==='name')return /^\d+$/.test(t.n)?`This is the Church numeral ${t.n}.`:`This is ${t.n}.`;
+  try{
+    const ft=full(t),key=db(ft),names=[];
+    for(const[n,d]of defs){if(d&&db(full(d))===key)names.push(n)}
+    const k=asNumeral(ft);
+    const parts=[];
+    if(names.length)parts.push(`This is ${names.join(' (also known as ')}${names.length>1?')':''}`);
+    if(k!=null)parts.push(parts.length?`which is also the numeral ${k}`:`This is the Church numeral ${k}`);
+    return parts.length?parts.join(', ')+'.':'';
+  }catch(e){return''}
+}
+
+/* ---------- UI state ---------- */
+const linesEl=$('#lines'),svg=$('#arrows'),statusEl=$('#status'),errorEl=$('#error');
+let lines=[],stepId=0,busy=false,running=false,finished=false;
+const LIMIT=400;
+const reduced=matchMedia('(prefers-reduced-motion: reduce)');
+
+/* pacing */
+let skip=false,pendingSleep=null;
+function pace(){
+  const v=$('#speed').value;
+  if(v==='manual')return running?{auto:true,k:1}:{auto:false,k:1};
+  return{auto:true,k:parseFloat(v)};
+}
+function sleep(ms){
+  if(skip||ms<=0)return Promise.resolve();
+  return new Promise(r=>{const t=setTimeout(()=>{pendingSleep=null;r()},ms);pendingSleep=()=>{clearTimeout(t);pendingSleep=null;r()}});
+}
+function interrupt(){skip=true;if(pendingSleep)pendingSleep()}
+
+/* ---------- arrows ---------- */
+let specs=[],timers=[];
+function clearTimers(){timers.forEach(clearTimeout);timers=[]}
+function rectOf(el){
+  const kids=[...el.querySelectorAll(':scope > span')];
+  const list=kids.length?kids:[el];
+  let l=Infinity,r=-Infinity,t=Infinity,b=-Infinity;
+  for(const k of list){const q=k.getBoundingClientRect();if(!q.width&&!q.height)continue;l=Math.min(l,q.left);r=Math.max(r,q.right);t=Math.min(t,q.top);b=Math.max(b,q.bottom)}
+  if(l===Infinity){const q=el.getBoundingClientRect();l=q.left;r=q.right;t=q.top;b=q.bottom}
+  const c=linesEl.getBoundingClientRect();
+  return{l:l-c.left,r:r-c.left,t:t-c.top,b:b-c.top,cx:(l+r)/2-c.left};
+}
+const f1=n=>n.toFixed(1);
+/* every arrow = base line at the source, a connector with an arrowhead, a cap line at the target */
+function drawSpec(s,fsPx){
+  if(!s.from.isConnected||!s.to.isConnected)return'';
+  const g=fsPx*.16,tick=g*.9;
+  const cls=s.state==='done'?'done':(s.type==='seg'?'seg':'sub');
+  const mkId=s.state==='done'?'ahd':(s.type==='seg'?'ahs':'ah');
+  const D=s.dur||0;
+  // a path that draws during [from,to] fraction of the arrow's duration
+  const P=(d,from,to,extra='')=>s.anim
+    ?`<path pathLength="1" class="anim" style="animation-duration:${(D*(to-from)/1000).toFixed(3)}s;animation-delay:${(D*from/1000).toFixed(3)}s" d="${d}" ${extra}/>`
+    :`<path d="${d}" ${extra}/>`;
+  const mk=s.anim?'':`marker-end="url(#${mkId})"`;
+  const A=rectOf(s.from),B=rectOf(s.to);
+  let base,conn,cap;
+  if(s.type==='over'){
+    // base above the argument, arc over the line, cap above the hole
+    const yb=A.t-g,yc=B.t-g;
+    base=`M${f1(A.l+1)} ${f1(yb+tick)} L${f1(A.l+1)} ${f1(yb)} L${f1(A.r-1)} ${f1(yb)} L${f1(A.r-1)} ${f1(yb+tick)}`;
+    cap=`M${f1(B.l+1)} ${f1(yc+tick)} L${f1(B.l+1)} ${f1(yc)} L${f1(B.r-1)} ${f1(yc)} L${f1(B.r-1)} ${f1(yc+tick)}`;
+    const lift=Math.min(fsPx*1.75,fsPx*.7+Math.abs(A.cx-B.cx)*.25);
+    const top=Math.min(yb,yc)-lift;
+    conn=`M${f1(A.cx)} ${f1(yb)} C${f1(A.cx)} ${f1(top)} ${f1(B.cx)} ${f1(top)} ${f1(B.cx)} ${f1(yc-1.5)}`;
+  }else{
+    // base below the upper term, connector down, cap above the lower term
+    const yb=A.b+g*.6,yc=B.t-g*.6;
+    base=`M${f1(A.l+1)} ${f1(yb-tick)} L${f1(A.l+1)} ${f1(yb)} L${f1(A.r-1)} ${f1(yb)} L${f1(A.r-1)} ${f1(yb-tick)}`;
+    cap=`M${f1(B.l+1)} ${f1(yc+tick)} L${f1(B.l+1)} ${f1(yc)} L${f1(B.r-1)} ${f1(yc)} L${f1(B.r-1)} ${f1(yc+tick)}`;
+    const mid=(yb+yc)/2;
+    conn=`M${f1(A.cx)} ${f1(yb)} C${f1(A.cx)} ${f1(mid)} ${f1(B.cx)} ${f1(mid)} ${f1(B.cx)} ${f1(yc-1.5)}`;
+  }
+  return `<g class="ar ${cls}">${P(base,0,.25)}${P(conn,.25,.8,mk)}${P(cap,.8,1)}</g>`;
+}
+const marker=(id,c)=>`<marker id="${id}" viewBox="0 0 10 10" refX="9.5" refY="5" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><path class="mk ${c}" d="M0,0 L10,5 L0,10 z"/></marker>`;
+const DEFS=`<defs>${marker('ah','')}${marker('ahs','seg')}${marker('ahd','done')}</defs>`;
+function draw(){
+  const ex=linesEl.querySelector('.expr');
+  const fsPx=ex?parseFloat(getComputedStyle(ex).fontSize):27;
+  svg.innerHTML=DEFS+specs.map(s=>drawSpec(s,fsPx)).join('');
+}
+let raf=0;
+function redrawSoon(){cancelAnimationFrame(raf);raf=requestAnimationFrame(()=>{specs.forEach(s=>s.anim=false);draw()})}
+new ResizeObserver(redrawSoon).observe(linesEl);
+window.addEventListener('resize',redrawSoon);
+if(document.fonts&&document.fonts.ready)document.fonts.ready.then(redrawSoon);
+function clearArrows(){clearTimers();specs=[];draw()}
+
+/* ---------- lines ---------- */
+function makeLine(gutter,note){
+  const el=document.createElement('div');el.className='line';
+  const g=document.createElement('div');g.className='gutter';g.textContent=gutter;
+  const ex=document.createElement('div');ex.className='expr';
+  el.append(g,ex);
+  if(note){const n=document.createElement('div');n.className='note';n.innerHTML=note;el.append(n)}
+  linesEl.append(el);
+  return{el,ex};
+}
+function setHTML(l,mode,html){if(l.ex.dataset.mode!==mode){l.ex.innerHTML=html;l.ex.dataset.mode=mode}}
+function resetLine(l){
+  setHTML(l,'plain',plainHTML(l.term));
+  l.el.classList.remove('stepping','active','top','done','res','settled');
+}
+function short(s){return s.length>48?s.slice(0,47)+'…':s}
+function noteFor(info){
+  if(info.kind==='expand')return`Replace <span class="k-hole">${esc(info.name)}</span> with its definition.`;
+  let s=`Substitute <span class="k-arg">${esc(short(txt(info.arg,false)))}</span> for every <span class="k-hole">${esc(info.v)}</span>.`;
+  if(info.renamed.length){
+    const r=info.renamed.map(([a,b])=>`${esc(a)} to ${esc(b)}`).join(', ');
+    s+=` First rename ${r}, so the free variable in the argument isn't captured.`;
+  }
+  return s;
+}
+function setStatus(html){statusEl.innerHTML=html}
+const betaCount=()=>lines.filter(l=>l.kind==='beta').length;
+const inProgress=l=>l&&l.step&&l.beat<l.step.total;
+
+/* Build a step: the new line plus the list of arrows, described by piece labels */
+function createStep(){
+  const prev=lines[lines.length-1];
+  const res=find(prev.term,'');
+  const id=++stepId;
+  const out=reduce(prev.term,res,id);
+  const topHTML=toHTML(tokens(prev.term,{mode:'top',hl:res.path,kind:res.kind}));
+  const resTk=tokens(out.term,{mode:'res',hl:res.path,kind:res.kind,id});
+  const topTk=tokens(prev.term,{mode:'top',hl:res.path,kind:res.kind});
+  const text=tks=>{const m=new Map();for(const k of tks)m.set(k.p,(m.get(k.p)||'')+k.s);return m};
+  const T=text(topTk),R=text(resTk);
+  const actions=[],always=[];
+  for(let i=0;i<200;i++){
+    const s='s'+i,h='h'+i;
+    if(!T.has(s)&&!R.has(s)&&!T.has(h)&&!R.has(h))break;
+    if(R.has(s)){
+      if(T.has(s)&&R.get(s).trim())actions.push({type:'seg',from:['top',s],to:['res',s]});
+      else always.push(s);
+    }
+    if(T.has(h)&&R.has(h)){
+      if(T.has('a'))actions.push({type:'over',from:['top','a'],to:['top',h]});
+      actions.push({type:'down',from:['top',h],to:['res',h]});
+    }
+  }
+  const gutter=String(lines.length);
+  const {el,ex}=makeLine(gutter,noteFor(out.info));
+  const line={term:out.term,el,ex,kind:out.info.kind,beat:0,
+    step:{topHTML,resHTML:toHTML(resTk),actions,always,total:actions.length,mode:'s'+id}};
+  lines.push(line);
+  return line;
+}
+
+/* Render step `idx` at `beat` arrows shown. Deterministic, so Back is just a smaller beat. */
+function showStep(idx,beat,animate,K){
+  clearTimers();
+  const L=lines[idx],T=lines[idx-1],st=L.step;
+  for(let j=0;j<idx-1;j++){resetLine(lines[j]);lines[j].el.classList.add('past')}
+  const complete=beat>=st.total;
+  setHTML(T,'top'+st.mode,st.topHTML);
+  T.el.classList.remove('past','res','settled');
+  T.el.classList.add('top','stepping');
+  T.el.classList.toggle('active',!complete);
+  T.el.classList.toggle('done',complete);
+  setHTML(L,'res'+st.mode,st.resHTML);
+  L.el.classList.remove('past','top','stepping','active','done');
+  L.el.classList.add('res');
+  L.el.classList.toggle('settled',complete);
+
+  const q=(which,p)=>(which==='top'?T:L).ex.querySelector(`[data-p="${p}"]`);
+  const D=animate?600*K:0;
+  // which result pieces are visible at this beat
+  const shown=new Set(st.always);
+  st.actions.slice(0,beat).forEach(a=>{if(a.to[0]==='res')shown.add(a.to[1])});
+  const newest=beat>0?st.actions[beat-1]:null;
+  L.ex.querySelectorAll('.pc').forEach(pc=>{
+    const p=pc.dataset.p,k=pieceKind(p);
+    const vis=k==='c'||shown.has(p)||(complete&&(k==='s'||k==='h'));
+    const isNew=animate&&newest&&newest.to[0]==='res'&&newest.to[1]===p;
+    if(!vis){pc.classList.remove('shown','arrive');return}
+    if(isNew){
+      pc.classList.remove('shown','arrive');
+      timers.push(setTimeout(()=>pc.classList.add('shown','arrive'),D*.8));
+    }else pc.classList.add('shown');
+  });
+  specs=st.actions.slice(0,beat).map((a,i)=>({
+    type:a.type,from:q(...a.from),to:q(...a.to),
+    state:i===beat-1?'active':'done',
+    anim:animate&&i===beat-1&&D>0&&!reduced.matches,dur:D}));
+  draw();
+  if(specs.some(s=>s.anim))timers.push(setTimeout(()=>{specs.forEach(s=>s.anim=false);draw()},D+30));
+}
+
+function showStatic(){
+  // instant mode: plain lines, no arrows
+  clearArrows();
+  lines.forEach((l,i)=>{resetLine(l);l.el.classList.toggle('past',i<lines.length-1)});
+}
+
+function updateButtons(){
+  $('#next').disabled=finished&&!busy;
+  $('#back').disabled=lines.length<2||running||busy;
+  $('#run').textContent=running?'Stop':'Run to end';
+  $('#run').disabled=finished&&!running;
+}
+
+function load(){
+  if(busy)interrupt();
+  running=false;
+  errorEl.textContent='';
+  const src=$('#src').value;
+  const rawLines=src.split('\n').map(s=>s.trim()).filter(Boolean);
+  const isDef=l=>/^[^=()λ\\]*=/.test(l);
+  let term;
+  try{
+    defs=parseDefs(rawLines.filter(isDef).join('\n'),BUILTIN_DEFS);
+    const exprLines=rawLines.filter(l=>!isDef(l));
+    if(!exprLines.length)throw new LErr('Add an expression to reduce on the last line, below your definitions.');
+    term=parse(exprLines.join(' '),defs);
+  }catch(e){
+    if(e instanceof LErr){errorEl.textContent=e.message;return}
+    throw e;
+  }
+  const doLoad=()=>{
+    [...linesEl.querySelectorAll('.line')].forEach(n=>n.remove());
+    lines=[];stepId=0;finished=false;clearArrows();
+    const {el,ex}=makeLine('start',null);
+    const l={term,el,ex,kind:null};lines.push(l);resetLine(l);
+    if(!find(term,''))checkEnd();else setStatus('Ready. Press <kbd>→</kbd> or <strong>Next step</strong>.');
+    updateButtons();
+  };
+  if(busy){const w=()=>busy?setTimeout(w,30):doLoad();w()}else doLoad();
+}
+
+/* after a step is fully shown: loop / normal form / limit. Returns true if more steps remain. */
+function checkEnd(){
+  const n=lines.length-1,last=lines[n];
+  const key=txt(last.term,false);
+  for(let j=0;j<n;j++){
+    if(txt(lines[j].term,false)===key){
+      finished=true;running=false;
+      setStatus(`<strong>Infinite loop.</strong> Step ${n} is identical to ${j===0?'the starting expression':'step '+j}, so this would reduce forever without reaching an answer.`);
+      updateButtons();return false;
+    }
+  }
+  if(!find(last.term,'')){
+    finished=true;running=false;
+    const b=betaCount();
+    setStatus(`<strong>Done.</strong> No more reductions are possible after ${n} step${n===1?'':'s'} (${b} substitution${b===1?'':'s'}). ${esc(recognize(last.term))}`);
+    updateButtons();return false;
+  }
+  if(lines.length>LIMIT){
+    finished=true;running=false;
+    setStatus(`<strong>Stopped after ${LIMIT} steps.</strong> This one may never finish, or it's just very long.`);
+    updateButtons();return false;
+  }
+  finished=false;
+  setStatus(`Step ${n}. Press <kbd>→</kbd> for the next one.`);
+  updateButtons();return true;
+}
+function arrowStatus(l){
+  if(l.beat>=l.step.total){setStatus(`Step ${lines.length-1}, all ${l.step.total} arrows shown. Press <kbd>→</kbd> for the next step or <kbd>←</kbd> to take back the last arrow.`);return}
+  setStatus(`Step ${lines.length-1}, arrow ${l.beat} of ${l.step.total}. Press <kbd>→</kbd> for the next arrow or <kbd>←</kbd> to take it back.`);
+}
+
+async function next(){
+  if(busy){interrupt();return false}
+  if(!lines.length)return false;
+  errorEl.textContent='';
+  const P=pace();
+  let cur=lines[lines.length-1];
+
+  // one arrow per click
+  if(!P.auto){
+    if(!inProgress(cur)){
+      if(finished)return false;
+      try{cur=createStep()}catch(e){if(e instanceof LErr){errorEl.textContent=e.message;return false}throw e}
+    }
+    cur.beat++;
+    showStep(lines.length-1,cur.beat,true,1);
+    if(cur.beat>=cur.step.total)return checkEnd();
+    arrowStatus(cur);updateButtons();
+    return true;
+  }
+
+  // instant
+  if(P.k===0){
+    if(!inProgress(cur)){
+      if(finished)return false;
+      try{cur=createStep()}catch(e){if(e instanceof LErr){errorEl.textContent=e.message;return false}throw e}
+    }
+    cur.beat=cur.step.total;
+    showStatic();
+    return checkEnd();
+  }
+
+  // timed
+  if(!inProgress(cur)){
+    if(finished)return false;
+    try{cur=createStep()}catch(e){if(e instanceof LErr){errorEl.textContent=e.message;return false}throw e}
+  }
+  busy=true;skip=false;updateButtons();
+  const idx=lines.length-1,K=P.k;
+  setStatus(`Step ${idx}…`);
+  if(cur.beat===0){
+    showStep(idx,0,false,K);
+    cur.el.scrollIntoView({block:'nearest',behavior:reduced.matches?'auto':'smooth'});
+    await sleep(Math.max(700*K,300));
+  }
+  while(cur.beat<cur.step.total){
+    cur.beat++;
+    showStep(idx,cur.beat,!skip,K);
+    await sleep(600*K+300*K);
+  }
+  if(skip)showStep(idx,cur.beat,false,K);
+  busy=false;skip=false;
+  return checkEnd();
+}
+
+function back(){
+  if(busy||lines.length<2)return;
+  running=false;
+  const P=pace();
+  const cur=lines[lines.length-1];
+  if(!P.auto&&cur.beat>1){
+    cur.beat--;
+    showStep(lines.length-1,cur.beat,false,1);
+    finished=false;arrowStatus(cur);updateButtons();
+    return;
+  }
+  // remove the whole step
+  lines.pop();cur.el.remove();
+  const last=lines[lines.length-1];
+  finished=false;
+  if(last.step&&!(P.auto&&P.k===0)){
+    last.beat=last.step.total;
+    showStep(lines.length-1,last.beat,false,1);
+    resetLine(cur);
+  }else{
+    showStatic();
+  }
+  if(lines.length===1){clearArrows();resetLine(last);setStatus('Back to the start. Press <kbd>→</kbd> for the first step.');updateButtons();return}
+  if(!P.auto)arrowStatus(last);
+  else setStatus(`Back to step ${lines.length-1}.`);
+  updateButtons();
+}
+
+async function run(){
+  if(running){running=false;updateButtons();return}
+  if(finished||busy)return;
+  running=true;updateButtons();
+  let count=0;
+  while(running){
+    const ok=await next();
+    if(!ok)break;
+    const k=pace().k;
+    if(k===0){if(++count%20===0)await new Promise(r=>requestAnimationFrame(r))}
+    else await sleep(500*k);
+  }
+  running=false;updateButtons();
+}
+
+/* ---------- Wiring ---------- */
+const exSel=$('#examples');
+EXAMPLES.forEach(([label],i)=>{const o=document.createElement('option');o.value=String(i);o.textContent=label;exSel.append(o)});
+exSel.addEventListener('change',()=>{
+  if(exSel.value==='')return;
+  $('#src').value=EXAMPLES[+exSel.value][1];
+  exSel.value='';
+  load();
+});
+$('#defs').textContent=BUILTIN;
+$('#load').addEventListener('click',load);
+$('#next').addEventListener('click',()=>next());
+$('#back').addEventListener('click',back);
+$('#run').addEventListener('click',run);
+
+const src=$('#src');
+src.addEventListener('input',()=>{
+  if(src.value.includes('\\')){
+    const pos=src.selectionStart;
+    src.value=src.value.replace(/\\/g,'λ');
+    src.setSelectionRange(pos,pos);
+  }
+});
+src.addEventListener('keydown',e=>{if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();load()}});
+
+document.addEventListener('keydown',e=>{
+  const tag=e.target.tagName;
+  if(tag==='TEXTAREA'||tag==='INPUT'||tag==='SELECT')return;
+  if(tag==='BUTTON'&&(e.key===' '||e.key==='Enter'))return;
+  if(e.key==='ArrowRight'||e.key===' '||e.key==='PageDown'){e.preventDefault();next()}
+  else if(e.key==='ArrowLeft'||e.key==='PageUp'){e.preventDefault();back()}
+});
+
+/* text size */
+let fsr=1.7;
+try{const s=parseFloat(localStorage.getItem('lam-fs'));if(s)fsr=s}catch(e){}
+function applyFs(){document.documentElement.style.setProperty('--fs',fsr+'rem');try{localStorage.setItem('lam-fs',String(fsr))}catch(e){}redrawSoon()}
+$('#smaller').addEventListener('click',()=>{fsr=Math.max(1,+(fsr-0.2).toFixed(1));applyFs()});
+$('#bigger').addEventListener('click',()=>{fsr=Math.min(3.4,+(fsr+0.2).toFixed(1));applyFs()});
+applyFs();
+
+/* theme */
+const themeBtn=$('#theme');
+function currentDark(){
+  const t=document.documentElement.getAttribute('data-theme');
+  return t?t==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
+}
+function syncThemeBtn(){themeBtn.textContent=currentDark()?'Light mode':'Dark mode'}
+try{const t=localStorage.getItem('lam-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}
+themeBtn.addEventListener('click',()=>{
+  const t=currentDark()?'light':'dark';
+  document.documentElement.setAttribute('data-theme',t);
+  try{localStorage.setItem('lam-theme',t)}catch(e){}
+  syncThemeBtn();
+});
+syncThemeBtn();
+
+load();
+})();
+</script>
+</body>
+</html>
